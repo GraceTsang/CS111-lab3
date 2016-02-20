@@ -758,7 +758,6 @@ add_block(ospfs_inode_t *oi)
 	uint32_t *allocated[2] = { 0, 0 };
 
 	// EXERCISE: Your code here 
-	//TODO: handle error cases; free blocks
 	uint32_t new_allocated_indirect = 0;
 	uint32_t new_allocated_indirect2 = 0;
 	uint32_t new_blockno = 0;
@@ -768,14 +767,14 @@ add_block(ospfs_inode_t *oi)
 	if (n == OSPFS_MAXFILEBLKS){
 		return -ENOSPC;
 	}
-	void *free_block_bitmap = ospfs_block(OSPFS_FREEMAP_BLK);
+
 	new_blockno = allocate_block();
 	if (new_blockno)
 		zero_out_block(new_blockno);
 	else
 		return -ENOSPC;
 	if (n < OSPFS_NDIRECT){
-		oi->oi_direct[n] = new_blockno;
+		oi->oi_direct[direct_index(n)] = new_blockno;
 		oi->oi_size += OSPFS_BLKSIZE;
 	}
 	else if (n == OSPFS_NDIRECT){
@@ -785,12 +784,10 @@ add_block(ospfs_inode_t *oi)
 			return -ENOSPC;
 		zero_out_block(new_allocated_indirect);
 		oi->oi_indirect = new_allocated_indirect;
-		n++;
-		oi->oi_size += OSPFS_BLKSIZE;
 
 		//Make indirect block point to newly allocated direct block
-		indir_ptr = ospfs_block(n);
-		*indir_ptr = new_blockno;
+		indir_ptr = ospfs_block(oi->oi_indirect);
+		indir_ptr[direct_index(n)] = new_blockno;
 		oi->oi_size += OSPFS_BLKSIZE;
 	}
 	else if (n < OSPFS_NDIRECT + OSPFS_NINDIRECT) {
@@ -805,38 +802,35 @@ add_block(ospfs_inode_t *oi)
 			return -ENOSPC;
 		zero_out_block(new_allocated_indirect2);
 		oi->oi_indirect2 = new_allocated_indirect2;
-		n++;
-		oi->oi_size += OSPFS_BLKSIZE;
 
 		//Allocate new indirect under it
 		new_allocated_indirect = allocate_block();
-		if (!new_allocated_indirect)
+		if (!new_allocated_indirect) {
+			free_block(new_allocated_indirect2);
+			oi->oi_size -= OSPFS_BLKSIZE;
 			return -ENOSPC;
+		}
 		zero_out_block(new_allocated_indirect);
 		indir2_ptr = ospfs_block(oi->oi_indirect2);
-		*indir2_ptr = new_allocated_indirect;
-		n++;
-		oi->oi_size += OSPFS_BLKSIZE;
+		indir2_ptr[indir_index(n)] = new_allocated_indirect;
 
 		//Add direct block under it
 		indir_ptr = ospfs_block(indir2_ptr[indir_index(n)]);
-		*indir_ptr = new_blockno;
+		indir_ptr[direct_index(n)] = new_blockno;
 		oi->oi_size += OSPFS_BLKSIZE;
 	}
 	else {
 		indir2_ptr = ospfs_block(oi->oi_indirect2);
-		if ((n - OSPFS_NDIRECT) % OSPFS_NINDIRECT == 0) {//Math???
+		if ((n - OSPFS_NDIRECT) % OSPFS_NINDIRECT == 0) {
 			//Allocate new indirect
 			new_allocated_indirect = allocate_block();
 			if (!new_allocated_indirect)
 				return -ENOSPC;
 			zero_out_block(new_allocated_indirect);
 			indir2_ptr[indir_index(n)] = new_allocated_indirect;
-			n++;
-			oi->oi_size += OSPFS_BLKSIZE;
 		}
 		//Allocate direct
-		indir_ptr = ospfs_block(indir2_ptr[indir_index(new_blockno)]);	//Voodoo
+		indir_ptr = ospfs_block(indir2_ptr[indir_index(new_blockno)]);
 		indir_ptr[direct_index(n)] = new_blockno;
 		oi->oi_size += OSPFS_BLKSIZE;
 	}
@@ -871,7 +865,7 @@ static int
 remove_block(ospfs_inode_t *oi)
 {
 	// current number of blocks in file
-	uint32_t n = ospfs_size2nblocks(oi->oi_size);
+	uint32_t n = ospfs_size2nblocks(oi->oi_size) - 1;
 
 	// EXERCISE: Your code here 
 	uint32_t indirect_to_free = 0;
@@ -880,9 +874,8 @@ remove_block(ospfs_inode_t *oi)
 	uint32_t *indir_ptr = NULL;
 	uint32_t *indir2_ptr = NULL;
 
-	if (n == 0)
+	if (n == -1)
 		return -EIO;
-	//void *free_block_bitmap = ospfs_block(OSPFS_FREEMAP_BLK);
 
 	indirect2_to_free = indir2_index(n);
 	indirect_to_free = indir_index(n);
@@ -906,10 +899,9 @@ remove_block(ospfs_inode_t *oi)
 
 		//Free indirect block
 		free_block(oi->oi_indirect);
-		oi->oi_size -= OSPFS_BLKSIZE;
 	}
-	else if (n < OSPFS_NDIRECT + OSPFS_NINDIRECT) {
-		if (indirect_to_free == -1)
+	else if (n < OSPFS_NDIRECT + OSPFS_NINDIRECT + 2) {
+		if (oi->oi_indirect == 0)
 			return -EIO;
 
 		//Free block w/o freeing indirect block
@@ -919,7 +911,7 @@ remove_block(ospfs_inode_t *oi)
 		oi->oi_size -= OSPFS_BLKSIZE;
 	}
 	else if (n == OSPFS_NDIRECT + OSPFS_NINDIRECT + 2) {
-		if (indirect_to_free == -1 || indirect2_to_free == -1)
+		if (oi->oi_indirect == 0)
 			return -EIO;
 
 		//Free block
@@ -933,24 +925,19 @@ remove_block(ospfs_inode_t *oi)
 		//Free indirect block
 		free_block(indir2_ptr[indirect_to_free]);
 		indir2_ptr[indirect_to_free] = 0;
-		n--;
-		oi->oi_size -= OSPFS_BLKSIZE;
 
 		//Free indirect2 block
 		free_block(oi->oi_indirect2);
 		oi->oi_indirect = 0;
-		oi->oi_size -= OSPFS_BLKSIZE;
 	}
 	else if (n > OSPFS_NDIRECT + OSPFS_NINDIRECT + 2) {
-		if (indirect_to_free == -1 || indirect2_to_free == -1)
+		if (indirect_to_free == -1 || oi->oi_indirect2 == 0)
 			return -EIO;
 		//Free block
 		indir2_ptr = ospfs_block(oi->oi_indirect2);
 		indir_ptr = ospfs_block(indir2_ptr[indirect_to_free]);
 		free_block(indir_ptr[block_to_free]);
 		indir_ptr[block_to_free] = 0;
-		n--;
-		oi->oi_size -= OSPFS_BLKSIZE;
 		if ((n - OSPFS_NDIRECT) % OSPFS_NINDIRECT == 0) {
 			//Free indirect block
 			free_block(indir2_ptr[indirect_to_free]);
@@ -1348,8 +1335,10 @@ ospfs_link(struct dentry *src_dentry, struct inode *dir, struct dentry *dst_dent
 	if (IS_ERR(new_dentry))
 		return PTR_ERR(new_dentry);
 
-	strcpy(new_dentry->od_name, dst_dentry->d_name.name);
-	new_dentry->od_ino = dst_dentry->d_inode->i_ino;
+	strncpy(new_dentry->od_name, dst_dentry->d_name.name, dst_dentry->d_name.len);
+	new_dentry->od_name[dst_dentry->d_name.len] = '\0';
+
+	new_dentry->od_ino = src_dentry->d_inode->i_ino;
 	(ospfs_inode(new_dentry->od_ino)->oi_nlink)++;
 	return 0;
 }
@@ -1550,77 +1539,11 @@ ospfs_follow_link(struct dentry *dentry, struct nameidata *nd)
 {
 	ospfs_symlink_inode_t *oi =
 		(ospfs_symlink_inode_t *) ospfs_inode(dentry->d_inode->i_ino);
-	
-	// Exercise: Your code here:
-	
-	// Indexes we use for loops
-	int i = 0;
-	int k = 0;
-	
-	// Find indices of '?' and ':'
-	int q_index = find_first_index(oi->oi_symlink, '?');
-	int c_index = find_first_index(oi->oi_symlink, ':'); 
-	
-	// Prepare for storing condition and possible destinations
-	char* cond;		// The condition, which is compared to root
-	char* dest;		// The conditional symlink destination
-	
-	// eprintk("SYMLINK TYPE: ");
-	
-	// If both are found, we have a conditional symlink
-	if(q_index != -1 && c_index != -1)
-	{
-		// eprintk("Conditional Symlink\n");
-		// Allocate data
-		cond = kmalloc(oi->oi_size, GFP_ATOMIC);
-		dest = kmalloc(oi->oi_size, GFP_ATOMIC);
-		
-		// Find condition, which is from the string beginning to ?
-		for(i = 0; i < q_index; i++)
-		{
-			cond[i] = oi->oi_symlink[i];
-		}
-		cond[i] = 0;
-		
-		// We need to be root, and the symlink set to root to meet conditions
-		if(current->uid == 0 && strcmp(cond, "root") == 0)
-		{
-			// Find the first destination, which is between ? and :
-			for(i = (q_index + 1); i < c_index; i++)
-			{
-				dest[k] = oi->oi_symlink[i];
-				k++;
-			}
-			dest[k] = 0;
-			
-			// Set the symlink
-			nd_set_link(nd, dest);
-		}
-		else
-		{
-			// Find the second destination, which from the : to string end
-			for(i = (c_index + 1); oi->oi_symlink[i] != '\0'; i++)
-			{
-				dest[k] = oi->oi_symlink[i];
-				k++;
-			}
-			dest[k] = 0;
-			
-			// Set the symlink
-			nd_set_link(nd, dest);
-		}
-	}
-	
-	// Otherwise, it's just a normal symlink
-	else
-	{
-		// eprintk("Normal Symlink\n");
-		nd_set_link(nd, oi->oi_symlink);
-	}
-	
+	// Exercise: Your code here.
+
+	nd_set_link(nd, oi->oi_symlink);
 	return (void *) 0;
 }
-
 
 // Define the file system operations structures mentioned above.
 
