@@ -795,7 +795,7 @@ add_block(ospfs_inode_t *oi)
 		oi->oi_size += OSPFS_BLKSIZE;
 
 		//Make indirect block point to newly allocated direct block
-		&ospfs_block(new_allocated_indirect) = new_blockno;
+		*ospfs_block(new_allocated_indirect) = new_blockno;
 		oi->oi_size += OSPFS_BLKSIZE;
 	}
 	else if (n < OSPFS_NDIRECT + OSPFS_NINDIRECT) {
@@ -817,11 +817,11 @@ add_block(ospfs_inode_t *oi)
 		if (!new_allocated_indirect)
 			return -ENOSPC;
 		zero_out_block(new_allocated_indirect);
-		&ospfs_block(new_allocated_indirect2) = new_allocated_indirect;
+		*ospfs_block(new_allocated_indirect2) = new_allocated_indirect;
 		oi->oi_size += OSPFS_BLKSIZE;
 
 		//Add direct block under it
-		&ospfs_block(new_allocated_indirect) = new_blockno;
+		*ospfs_block(new_allocated_indirect) = new_blockno;
 		oi->oi_size += OSPFS_BLKSIZE;
 	}
 	else {
@@ -873,7 +873,90 @@ remove_block(ospfs_inode_t *oi)
 	uint32_t n = ospfs_size2nblocks(oi->oi_size);
 
 	/* EXERCISE: Your code here */
-	return -EIO; // Replace this line
+	uint32_t indirect_to_free = 0;
+	uint32_t indirect2_to_free = 0;
+	uint32_t block_to_free = 0;
+	uint32_t *indir_ptr = NULL;
+	uint32_t *indir2_ptr = NULL:
+
+	if (n == 0)
+		return -EIO;
+	void *free_block_bitmap = ospfs_block(OSPFS_FREEMAP_BLK);
+
+	indirect2_to_free = indir2_index(n);
+	indir_to_free = indir_index(n);
+	block_to_free = direct_index(n);
+
+	if (n < OSPFS_NDIRECT) {
+		free_block(oi->oi_direct[n]);
+		oi->oi_direct[n] = 0;
+		oi->oi_size -= OSPFS_BLKSIZE;
+	}
+	else if (n == OSPFS_NDIRECT) {
+		if (indirect_to_free == -1)
+			return -EIO;
+
+		//Free block
+		indir_ptr = ospfs_block(oi->oi_indirect);
+		free_block(indir_ptr[block_to_free]);
+		*indir_ptr = 0;
+		n--;
+		oi->oi_size -= OSPFS_BLKSIZE;
+
+		//Free indirect block
+		free_block(oi->oi_indirect);
+		oi->oi_size -= OSPFS_BLKSIZE;
+	}
+	else if (n < OSPFS_NDIRECT + OSPFS_NINDIRECT) {
+		if (indirect_to_free == -1)
+			return -EIO;
+
+		//Free block w/o freeing indirect block
+		indir_ptr = ospfs_block(oi->oi_indirect);
+		free_block(inir_ptr[block_to_free]);
+		indir_ptr[block_too_free] = 0;
+		oi->oi_size -= OSPFS_BLKSIZE;
+	}
+	else if (n == OSPFS_NDIRECT + OSPFS_NINDIRECT) {
+		if (indirect_to_free == -1 || indirect2_to_free == -1)
+			return -EIO;
+
+		//Free block
+		indir2_ptr = ospfs_block(oi->oi_indirect2);
+		indir_ptr = ospfs_block(indir2_ptr[indirect_to_free]);
+		free_block(indir_ptr[block_to_free]);
+		indir_ptr[block_too_free] = 0;
+		n--;
+		oi->oi_size -= OSPFS_BLKSIZE;
+
+		//Free indirect block
+		free_block(indir2_ptr[indirect_to_free]);
+		indir2_ptr[indirect_to_free] = 0;
+		n--;
+		oi->oi_size -= OSPFS_BLKSIZE;
+
+		//Free indirect2 block
+		free_block(oi->oi_indirect2);
+		oi->oi_indirect = 0;
+		oi->oi_size -= OSPFS_BLKSIZE;
+	}
+	else {
+		if (indirect_to_free == -1 || indirect2_to_free == -1)
+			return -EIO;
+		//Free block
+		indir2_ptr = ospfs_block(oi->oi_indirect2);
+		indir_ptr = ospfs_block(indir2_ptr[indirect_to_free]);
+		free_block(indir_ptr[block_to_free]);
+		indir_ptr[block_too_free] = 0;
+		n--;
+		oi->oi_size -= OSPFS_BLKSIZE;
+		if ((n - OSPFS_NDIRECT) % OSPFS_NINDIRECT == 0) {
+			//Free indirect block
+			free_block(indir2_ptr[indirect_to_free]);
+			indir2_ptr[indirect_to_free] = 0;
+			oi->oi_size -= OSPFS_BLKSIZE;
+		}
+	}
 }
 
 
