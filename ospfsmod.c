@@ -14,6 +14,7 @@
 #include <asm/uaccess.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
+#include <sys/ioctl.h>
 
 /****************************************************************************
  * ospfsmod
@@ -30,6 +31,8 @@
  * kernel does not print all messages to the console.  Levels like KERN_ALERT
  * and KERN_EMERG will make sure that you will see messages.) */
 #define eprintk(format, ...) printk(KERN_NOTICE format, ## __VA_ARGS__)
+
+static int nwrites_to_crash = -1;
 
 // The actual disk data is just an array of raw memory.
 // The initial array is defined in fsimg.c, based on your 'base' directory.
@@ -89,7 +92,30 @@ static struct inode_operations ospfs_symlink_inode_ops;
 static struct dentry_operations ospfs_dentry_ops;
 static struct super_operations ospfs_superblock_ops;
 
+/*****************************************************************************
+ * CRASH TESTING
+ */
+static int
+check_crash(){
+	if (nwrites_to_crash == 0)			//System has "crashed"
+		return 1;
+	else if (nwrites_to_crash == -1)	//System is normal
+		return 0;
+	else if (nwrites_to_crash > 0) {	//System has not yet crashed
+		nwrites_to_crash--;
+		return 0;
+	}
+	else {								//Should never reach here
+		eprink("Here there be dragons.\n");
+		return -1;
+	}
+}
 
+static int
+ospfs_ioctl(){
+	//:D
+	//Stuff hapens here
+}
 
 /*****************************************************************************
  * BITVECTOR OPERATIONS
@@ -1143,6 +1169,8 @@ static ssize_t
 ospfs_write(struct file *filp, const char __user *buffer, size_t count, 
 						loff_t *f_pos)
 {
+	if (check_crash())
+		return 0;
 	ospfs_inode_t *oi = ospfs_inode(filp->f_dentry->d_inode->i_ino);
 	int retval = 0;
 	size_t amount = 0;
@@ -1561,7 +1589,8 @@ static struct inode_operations ospfs_reg_inode_ops = {
 static struct file_operations ospfs_reg_file_ops = {
 	.llseek		= generic_file_llseek,
 	.read		= ospfs_read,
-	.write		= ospfs_write
+	.write		= ospfs_write,
+	.ioctl		= ospfs_ioctl		//For crash testing
 };
 
 static struct inode_operations ospfs_dir_inode_ops = {
