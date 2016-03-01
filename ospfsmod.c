@@ -14,7 +14,6 @@
 #include <asm/uaccess.h>
 #include <linux/kernel.h>
 #include <linux/sched.h>
-#include <sys/ioctl.h>
 
 /****************************************************************************
  * ospfsmod
@@ -106,15 +105,20 @@ check_crash(){
 		return 0;
 	}
 	else {								//Should never reach here
-		eprink("Here there be dragons.\n");
+		eprintk("Here there be dragons.\n");
 		return -1;
 	}
 }
 
 static int
-ospfs_ioctl(){
-	//:D
-	//Stuff hapens here
+ospfs_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg){
+	if (cmd == OSPFS_IOCTL_CMD) {
+		if (arg < -1)
+			return -1;
+		nwrites_to_crash = (int)arg;
+		return 0;
+	}
+	return -1;
 }
 
 /*****************************************************************************

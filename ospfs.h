@@ -2,6 +2,9 @@
 #define OSPFS_H
 // OSPFS Constants and Structure Definitions
 
+#define OSPFS_IOCTL_MAGIC  111
+#define OSPFS_IOCTL_CMD	   _IO(OSPFS_IOCTL_MAGIC, 0)
+
 /*****************************************************************************
  * BLOCKS
  *
