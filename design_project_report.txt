@@ -1,0 +1,17 @@
+OSPFS CRASH TESTING REPORT
+
+We designed a test program that demonstrates a bug with
+the ospfs implementation. We demonstrate this bug using
+the procedure in cra.sh. In this script, we simulate a 
+crash occurring in the middle of symlink creation. 
+
+When we "uncrash" the program, we see that the file system 
+is in an invalid state. Since the crash occured before
+the oi_nlink and oi_symlink fields of the symlink inode
+were updated, the newly created symlink has a link 
+count of 0 and does not have a real destination file.
+
+Hence, although in the creation process we intended the
+link to point to hello.txt, using the symlink to open
+a file results in an empty file, since it was not 
+successfully linked.

@@ -111,13 +111,17 @@ check_crash(){
 }
 
 static int
-ospfs_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long arg){
+ospfs_ioctl(struct inode *inode, struct file *file, unsigned int cmd, unsigned long l_arg){
+	int arg = (int) l_arg;
 	if (cmd == OSPFS_IOCTL_CMD) {
-		if (arg < -1)
+		if (arg < -1){
+			eprintk("Hallo, arg: %ld\n", arg);
 			return -1;
+		}
 		nwrites_to_crash = (int)arg;
 		return 0;
 	}
+	eprintk("Boo, arg: %ld\n", arg);
 	return -1;
 }
 
@@ -602,7 +606,11 @@ ospfs_unlink(struct inode *dirino, struct dentry *dentry)
 		return -ENOENT;
 	}
 
+	if (check_crash())
+		return 0;
 	od->od_ino = 0;
+	if (check_crash())
+		return 0;
 	oi->oi_nlink--;
 	return 0;
 }
@@ -1174,7 +1182,7 @@ ospfs_write(struct file *filp, const char __user *buffer, size_t count,
 						loff_t *f_pos)
 {
 	if (check_crash())
-		return 0;
+		return count;
 	ospfs_inode_t *oi = ospfs_inode(filp->f_dentry->d_inode->i_ino);
 	int retval = 0;
 	size_t amount = 0;
@@ -1317,6 +1325,8 @@ create_blank_direntry(ospfs_inode_t *dir_oi)
 		if (dentry->od_ino == 0)
 			return dentry;
 	}
+	if (check_crash())
+		return NULL;
 	result = add_block(dir_oi);
 	if (result < 0)
 		return ERR_PTR(result);
@@ -1366,11 +1376,15 @@ ospfs_link(struct dentry *src_dentry, struct inode *dir, struct dentry *dst_dent
 	ospfs_direntry_t *new_dentry = create_blank_direntry(dir_oi);
 	if (IS_ERR(new_dentry))
 		return PTR_ERR(new_dentry);
-
+	
+	if (check_crash())
+		return 0;
 	strncpy(new_dentry->od_name, dst_dentry->d_name.name, dst_dentry->d_name.len);
 	new_dentry->od_name[dst_dentry->d_name.len] = '\0';
 
 	new_dentry->od_ino = src_dentry->d_inode->i_ino;
+	if (check_crash())
+		return 0;
 	(ospfs_inode(new_dentry->od_ino)->oi_nlink)++;
 	return 0;
 }
@@ -1432,6 +1446,9 @@ ospfs_create(struct inode *dir, struct dentry *dentry, int mode,
 	if (file_oi == NULL)
 		return -EIO;
 
+	if (check_crash())
+		return 0;
+
 	file_oi->oi_size = 0;
 	file_oi->oi_ftype = OSPFS_FTYPE_REG;
 	file_oi->oi_nlink = 1;
@@ -1441,6 +1458,9 @@ ospfs_create(struct inode *dir, struct dentry *dentry, int mode,
 		file_oi->oi_direct[index_off] = 0;
 	file_oi->oi_indirect = 0;
 	file_oi->oi_indirect2 = 0;
+
+	if (check_crash())
+		return 0;
 
 	new_entry->od_ino = entry_ino;
 
@@ -1503,14 +1523,24 @@ ospfs_symlink(struct inode *dir, struct dentry *dentry, const char *symname)
 	if (!entry_ino)
 		return -ENOSPC;
 
+	if (check_crash())
+		return 0;
 	strcpy(new_dentry->od_name, dentry->d_name.name);
 	new_dentry->od_ino = entry_ino;
 
+	if (check_crash())
+		return 0;
 	new_inode = (ospfs_symlink_inode_t*)ospfs_inode(entry_ino);
 	new_inode->oi_size = strlen(symname);
 	new_inode->oi_ftype = OSPFS_FTYPE_SYMLINK;
-	new_inode->oi_nlink = 1;
+
+	if (check_crash())
+		return 0;
 	strcpy(new_inode->oi_symlink, symname);
+	if (check_crash())
+			return 0;
+	new_inode->oi_nlink = 1;
+	
 
 	/* Execute this code after your function has successfully created the
 	   file.  Set entry_ino to the created file's inode number before
@@ -1607,7 +1637,7 @@ static struct inode_operations ospfs_dir_inode_ops = {
 
 static struct file_operations ospfs_dir_file_ops = {
 	.read		= generic_read_dir,
-	.readdir	= ospfs_dir_readdir
+	.readdir	= ospfs_dir_readdir,
 };
 
 static struct inode_operations ospfs_symlink_inode_ops = {

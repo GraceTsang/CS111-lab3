@@ -16,9 +16,9 @@ Student ID: 104457274
 Email: gracetsang1996@gmail.com
 
 # Partner 2 (if you're working in a team)
-Name: 
-Student ID: 
-Email: 
+Name: Joanne Park
+Student ID: 104450395
+Email: jpark.per3@gmail.com
 
 # Extra credit problems
 #Extra credit problem: none
